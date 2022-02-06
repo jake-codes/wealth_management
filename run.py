@@ -1,8 +1,10 @@
-import csv
+sum_categoriesimport csv
 import datetime
 import glob
 import pdb
 import yaml
+
+import matplotlib.pyplot as plt
 
 
 def load_transformations():
@@ -86,22 +88,30 @@ def get_sums(transactions):
 
     return (expenses, paychecks, savings, balance, true_savings, true_savings_percent)
 
-def build_category_map(transactions):
+
+def transform_categories(transactions):
     transformations = load_transformations()
+    for t in transactions:
+        if abs(float(t['Expense'])) > 0:
+            cat = t['Category'] if t['Category'] else 'Uncategorized'
+            category_transformed = False
+            for desc_key, cat_val in transformations['descriptions'].items():
+                if desc_key.lower() in t['Description'].lower():
+                    cat = cat_val
+                    category_transformed = True
+                if not category_transformed:
+                    cat = transformations['categories'][cat] if cat in transformations['categories'] else cat
+
+    return transactions
+
+def sum_categories(transactions):
     # CATEGORIES
     categories_map = {}
     expenses = list(filter(lambda x: x['Expense'] > 0, transactions))
     for t in expenses:
-        cat = t['Category']
-        if not cat:
-            cat = 'Uncategorized'
 
-        cat = transformations['categories'][cat] if cat in transformations['categories'] else cat
         val = abs(int(float(t['Expense']))) if t['Expense'] else 0
-
-        if cat not in categories_map:
-            categories_map[cat] = 0
-        categories_map[cat] = categories_map[cat] + val
+        categories_map[cat] = val if cat not in categosum_categoriesries_map else categories_map[cat] + val
 
     cat_list = list(categories_map.items())
     cat_list.sort(reverse=True, key=lambda x: x[1])
@@ -109,8 +119,25 @@ def build_category_map(transactions):
 
 
 # PLOTTINGx
+
+def plot_table(category_map):
+    print('\nPlotting table')
+    # pdb.set_trace()
+    table_data = list(category_map.items())
+    table_data.sort(key=lambda x: x[1], reverse=True)
+    cols = ['Categories', 'Amounts']
+    rows = [x[0] for x in table_data]
+    vals = [[x[1]] for x in table_data]
+    fig, ax = plt.subplots()
+    ax.set_axis_off()
+    table = ax.table(
+        cellText = table_data,
+        loc ='center'
+    )
+    ax.set_title('Expense Categories', fontweight ="bold")
+    plt.show()
+
 def plot_categories(category_map):
-    import matplotlib.pyplot as plt
 
     labels = []
     sizes = []
@@ -134,7 +161,8 @@ if __name__ == '__main__':
     transactions = load_transactions()
     transactions = apply_filters(transactions)
 
-    category_map, category_list = build_category_map(transactions)
+    
+    category_map, category_list = sum_categories(transactions)
 
     (expenses, paychecks, savings, balance, true_savings, true_savings_percent) = get_sums(transactions)
 
@@ -145,8 +173,8 @@ if __name__ == '__main__':
     print('Personal Transactions:')
     print_category('Personal', transactions)
 
-    plot_categories(category_map)
-
+    # plot_categories(category_map)
+    plot_table(category_map)
 # print(transactions[0])
 
 # # Time series data source: fpp pacakge in R.

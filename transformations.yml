@@ -1,4 +1,9 @@
-descriptions: null
+descriptions:
+  "amazon": "Amazon"
+  "Apple": "Apple"
+  "sprouts": "Sprouts"
+  "Prime Video": "Amazon"
+  "Etsy": "Shopping"
 categories:
   "Books": "Shopping"
   "Music": "Shopping"
@@ -36,3 +41,4 @@ categories:
   "Food & Drink": "Food"
   "Financial": "Bills"
   "Home": "Home Improvement"
+  "Mortgage &amp; Rent": "Mortgage"
