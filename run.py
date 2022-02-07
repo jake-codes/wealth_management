@@ -1,4 +1,4 @@
-sum_categoriesimport csv
+import csv
 import datetime
 import glob
 import pdb
@@ -20,29 +20,27 @@ def normalize_transaction(ts, isChase):
     ts['PythonDate'] = datetime.datetime.strptime(date, '%m/%d/%Y').date()
     ts['ID'] = ts['Transaction Number'] if not isChase else '{}.{}.{}'.format(date, description, ts['Amount'])
 
-    savings = 0
     debit = 0
     credit = 0
 
     if isChase:
-        debit = abs(float(ts['Amount']))
+        debit = abs(float(ts['Amount'])) if float(ts['Amount']) < 0.0 else 0
     else:
-        if ('Coinbase' in description or 'ealthfront' in description or 'Internet Transfer to Loan' in description):
-            savings = abs(float(ts['Debit']))
-        else:
-            debit = abs(float(ts['Debit'])) if len(ts['Debit']) and abs(float(ts['Debit'])) > 0 else 0
-            credit = abs(float(ts['Credit'])) if debit == 0 and len(ts['Credit']) and abs(float(ts['Credit'])) > 0 else 0
+        debit = abs(float(ts['Debit'])) if len(ts['Debit']) and abs(float(ts['Debit'])) > 0  else 0
+        credit = abs(float(ts['Credit'])) if debit == 0 and len(ts['Credit']) and abs(float(ts['Credit'])) > 0  else 0
 
-    ts['Saving'] = savings
     ts['Expense'] = debit
     ts['Paycheck'] = credit
 
     # if 'ealthfront' in description:
     #     pdb.set_trace()
 
-    return (ts, savings)
+    return ts
 
-def filters(ts, MAX_AMOUNT_FILTER = 9000):
+def filters(ts, filters_, MAX_AMOUNT_FILTER = 9000):
+    for f, key in filters_.items():
+        if f.lower() in ts[key].lower():
+            return False
     return ts['Expense'] < MAX_AMOUNT_FILTER and ts['Paycheck'] < MAX_AMOUNT_FILTER and 'credit card payment' not in ts['Category'].lower() and ts['PythonDate'] > datetime.datetime(2021, 7, 1).date()
 
 
@@ -51,15 +49,13 @@ def load_transaction_csv(filename, isChase=False):
         reader = csv.DictReader(csvfile)
         transactions = []
         for row in reader:
-            ts, savings = normalize_transaction(row, isChase)
+            ts = normalize_transaction(row, isChase)
             transactions.append(ts)
-            # if savings:
-            #     print(ts)
-            #     print(sum([x['Saving'] for x in transactions]))
         return transactions
 
 def load_transactions():
     csvFilenamesList = glob.glob('*.csv')
+    print('csvFilenamesList: {}'.format(csvFilenamesList))
     transactions = []
     for filename in csvFilenamesList:
         isChase = 'chase' in filename.lower()
@@ -75,16 +71,20 @@ def filter_this_month(t):
 
 def apply_filters(transactions):
     # transactions = list(filter(filter_this_month, transactions))
-    return list(filter(filters, transactions))
+    filters_ = load_transformations()['filters']
+    return list(filter(lambda t: filters(t, filters_), transactions))
 
 def get_sums(transactions):
-    expenses = sum([x['Expense'] for x in transactions])
+    expenses = sum([x['Expense'] for x in transactions if not 'Savings' in x['Category'] ])
     paychecks = sum([x['Paycheck'] for x in transactions])
-    savings = sum([x['Saving'] for x in transactions])
+    savings = sum([x['Expense'] for x in transactions if 'Savings' in x['Category']])
+    savings_percent = 0 if paychecks == 0 else round(100*savings/paychecks)
 
-    balance = paychecks - expenses
-    true_savings = savings - balance
+    balance = abs(paychecks) - abs(expenses)
+    true_savings = abs(savings) - balance
     true_savings_percent = 0 if paychecks == 0 else round(100*true_savings/paychecks)
+
+    print('Expenses: {}\nPaychecks: {}\nSavings: {} ({}%)\nTrue Savings: {} ({}%)\n'.format(int(expenses),int(paychecks),int(savings), int(savings_percent),int(true_savings), int(true_savings_percent)))
 
     return (expenses, paychecks, savings, balance, true_savings, true_savings_percent)
 
@@ -101,21 +101,23 @@ def transform_categories(transactions):
                     category_transformed = True
                 if not category_transformed:
                     cat = transformations['categories'][cat] if cat in transformations['categories'] else cat
+            t['Category'] = cat
 
     return transactions
 
-def sum_categories(transactions):
+def sum_categories(transactions, total_expenses):
     # CATEGORIES
     categories_map = {}
     expenses = list(filter(lambda x: x['Expense'] > 0, transactions))
     for t in expenses:
-
+        cat = t['Category']
+        if cat not in categories_map:
+            categories_map[cat] = {"amount": 0, "%": 0}
         val = abs(int(float(t['Expense']))) if t['Expense'] else 0
-        categories_map[cat] = val if cat not in categosum_categoriesries_map else categories_map[cat] + val
+        categories_map[cat]['amount'] = val if cat not in categories_map else categories_map[cat]['amount'] + val
+        categories_map[cat]['%'] = round(100.0*categories_map[cat]['amount']/total_expenses)
 
-    cat_list = list(categories_map.items())
-    cat_list.sort(reverse=True, key=lambda x: x[1])
-    return categories_map, cat_list
+    return categories_map
 
 
 # PLOTTINGx
@@ -123,18 +125,21 @@ def sum_categories(transactions):
 def plot_table(category_map):
     print('\nPlotting table')
     # pdb.set_trace()
-    table_data = list(category_map.items())
-    table_data.sort(key=lambda x: x[1], reverse=True)
-    cols = ['Categories', 'Amounts']
-    rows = [x[0] for x in table_data]
-    vals = [[x[1]] for x in table_data]
+    table_data = list([[x[0],x[1]['%'],  x[1]['amount']] for x in category_map.items()])
+    # pdb.set_trace()
+    table_data.sort(key=lambda x: x[2], reverse=True)
+    # cols = ['Categories', 'Amounts']
+    # rows = [x[0] for x in table_data]
+    
     fig, ax = plt.subplots()
-    ax.set_axis_off()
+    # ax.set_axis_off()
     table = ax.table(
         cellText = table_data,
         loc ='center'
     )
-    ax.set_title('Expense Categories', fontweight ="bold")
+    # table.set_fontsize(14)
+    # table.scale(1,4)
+    ax.axis('off')
     plt.show()
 
 def plot_categories(category_map):
@@ -155,39 +160,23 @@ def plot_categories(category_map):
 def print_category(category, transactions):
     cat_transactions = [x for x in transactions if x['Category'] == category]
     for x in cat_transactions:
-        print('{}: {}'.format(x['Description'], x['Expense']))
+        print('{}: -{} +{}'.format(x['Description'], x['Expense'], x['Paycheck']))
 
 if __name__ == '__main__':
     transactions = load_transactions()
     transactions = apply_filters(transactions)
-
-    
-    category_map, category_list = sum_categories(transactions)
+    transactions = transform_categories(transactions)
 
     (expenses, paychecks, savings, balance, true_savings, true_savings_percent) = get_sums(transactions)
 
-    print('Expenses: {}\nPaychecks: {}\nSavings: {} ({}%)\n'.format(int(expenses),int(paychecks),int(true_savings), int(true_savings_percent)))
+    category_map = sum_categories(transactions, expenses)
 
-    print('Categories:\n{}\n'.format(category_list))
-
-    print('Personal Transactions:')
-    print_category('Personal', transactions)
+    for category in category_map:
+        print('\n---------------')
+        print('{} Transactions:'.format(category))
+        print('---------------\n')
+        print_category(category, transactions)
 
     # plot_categories(category_map)
+
     plot_table(category_map)
-# print(transactions[0])
-
-# # Time series data source: fpp pacakge in R.
-# import pandas as pd
-# import matplotlib.pyplot as plt
-# df = pd.read_csv('AccountHistory.csv', parse_dates=['Date'], index_col='Date')
-# df_filter = df[(df.Debit >= -40000) & ('Coinbase' in df['Description'])]
-
-# # Draw Plot
-# def plot_df(df, x, y, title="", xlabel='Date', ylabel='Value', dpi=100):
-#     plt.figure(figsize=(16,5), dpi=dpi)
-#     plt.plot(x, y, color='tab:red')
-#     plt.gca().set(title=title, xlabel=xlabel, ylabel=ylabel)
-#     plt.show()
-
-# plot_df(df_filter, x=df_filter.index, y=df_filter.Debit, title='Withdrawals') 
